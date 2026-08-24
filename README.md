@@ -75,7 +75,7 @@ The framework is optimized to run locally on enterprise-grade workstation setups
 1. **Clone the Repository**
 ```bash
 git clone https://github.com/YourUsername/Neural-Log-Disentanglement.git
-cd CrossModal-Log-Retrieval
+cd Neural-Log-Disentanglement
 ```
 
 2. **Create a Conda Environment**
