@@ -58,8 +58,6 @@ graph LR
     CLEAN -->|Context| LLM
     LLM --> OUT
 ```
-*(Diagram renders in GitHub natively using Mermaid.js)*
-
 ---
 
 ## ⚙️ Hardware & System Requirements
