@@ -90,7 +90,31 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 pip install transformers vllm scikit-learn pandas numpy networkx
 pip install -r requirements.txt
 ```
+---
+## 📁 Directory Structure
 
+The repository is organized as follows to separate raw data, model training, and inference pipelines cleanly:
+
+```text
+CrossModal-Log-Retrieval/
+├── data/
+│   ├── raw/                  # Place the original RCAEval RE3 dataset here
+│   ├── processed/            # Generated interleaved corpus and Golden Key
+│   └── results/              # Outputs: extracted sub-graphs and generated RCA reports
+├── src/
+│   ├── data/
+│   │   └── build_interleaved_corpus.py  # Injects NTP jitter and fractures traces (Algorithm 1)
+│   ├── models/
+│   │   └── train_threading.py           # Trains the Cross-Modal MHSA Bi-Encoder
+│   ├── inference/
+│   │   ├── retrieve.py                  # Executes Top-K semantic sub-graph extraction
+│   │   └── generate_rca.py              # Runs the local Llama-3 RAG diagnosis via vLLM
+│   └── evaluation/
+│       └── run_benchmarks.py            # Computes IR metrics (Recall@K, MRR, AC@K)
+├── checkpoints/              # Stores trained model weights (e.g., mhsa_best.pt)
+├── requirements.txt          # Required python packages and dependencies
+├── LICENSE                   # MIT License
+└── README.md                 # Project documentation
 ---
 
 ## 📂 Step-by-Step Implementation Guide
