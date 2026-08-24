@@ -28,8 +28,8 @@ graph LR
     
     subgraph Stage 1: Dense Encoding
         direction TB
-        TE[Text Encoder<br/>LogBERT]:::processNode
-        T2V[Time2Vec<br/>Embeddings]:::processNode
+        TE["Text Encoder<br/>LogBERT"]:::processNode
+        T2V["Time2Vec<br/>Embeddings"]:::processNode
         VEC["$$\begin{array}{c} \text{Cross-Modal Vector} \\ v_i = h_i \oplus t_{emb} \end{array}$$"]:::processNode
     end
     
@@ -38,12 +38,12 @@ graph LR
     end
     
     subgraph Stage 3: Retrieval
-        TOPK{Top-K<br/>Extraction}:::processNode
+        TOPK{"Top-K<br/>Extraction"}:::processNode
         CLEAN["$$\begin{array}{c} \text{Disentangled Sub-graph} \\ \mathcal{R}_{trig} \end{array}$$"]:::processNode
     end
     
     subgraph Stage 4: Generation
-        LLM[Generative LLM<br/>Llama-3 (RAG)]:::llmNode
+        LLM["Generative LLM<br/>Llama-3 (RAG)"]:::llmNode
     end
     
     OUT[/"$$\begin{array}{c} \text{RCA Diagnosis} \\ P_{RCA} \end{array}$$"/]:::outputNode
