@@ -115,6 +115,7 @@ CrossModal-Log-Retrieval/
 ├── requirements.txt          # Required python packages and dependencies
 ├── LICENSE                   # MIT License
 └── README.md                 # Project documentation
+```
 ---
 
 ## 📂 Step-by-Step Implementation Guide
