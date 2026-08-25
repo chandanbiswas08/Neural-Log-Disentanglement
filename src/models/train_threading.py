@@ -100,6 +100,9 @@ class LogTripletDataset(Dataset):
             self.valid_traces = list(np.random.choice(self.valid_traces, max_traces, replace=False))
             
         self.all_log_ids = list(self.corpus_dict.keys())
+        self.min_time = corpus_df['observed_timestamp'].min()
+        self.max_time = corpus_df['observed_timestamp'].max()
+        
         print(f"✅ Successfully mapped {len(self.valid_traces)} fault incidents for Contrastive Training.")
 
     def __len__(self):
@@ -133,15 +136,15 @@ class LogTripletDataset(Dataset):
         return {
             "anchor_ids": anchor_tok['input_ids'].squeeze(0),
             "anchor_mask": anchor_tok['attention_mask'].squeeze(0),
-            "anchor_time": torch.tensor([anchor_log['observed_timestamp']], dtype=torch.float32),
+            "anchor_time": torch.tensor([(anchor_log['observed_timestamp'] - self.min_time) / (self.max_time - self.min_time)], dtype=torch.float32),
             
             "pos_ids": pos_tok['input_ids'].squeeze(0),
             "pos_mask": pos_tok['attention_mask'].squeeze(0),
-            "pos_time": torch.tensor([pos_log['observed_timestamp']], dtype=torch.float32),
+            "pos_time": torch.tensor([(pos_log['observed_timestamp'] - self.min_time) / (self.max_time - self.min_time)], dtype=torch.float32),
             
             "neg_ids": neg_tok['input_ids'].squeeze(0),
             "neg_mask": neg_tok['attention_mask'].squeeze(0),
-            "neg_time": torch.tensor([neg_log['observed_timestamp']], dtype=torch.float32),
+            "neg_time": torch.tensor([(neg_log['observed_timestamp'] - self.min_time) / (self.max_time - self.min_time)], dtype=torch.float32),
         }
 
 # ==========================================
