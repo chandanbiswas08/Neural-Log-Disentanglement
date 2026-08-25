@@ -16,8 +16,6 @@ def parse_args():
 def process_logs(input_dir, clock_drift_var, gumbel_scale):
     all_logs = []
     golden_key = []
-    
-    # Dictionary to hold the static NTP clock skew per microservice (Delta_s)
     service_ntp_skew = {}
     global_log_id = 0
 
@@ -29,79 +27,45 @@ def process_logs(input_dir, clock_drift_var, gumbel_scale):
         parts = file_path.parts
         system, fault_type, trial = parts[-4], parts[-3], parts[-2]
         
-        try:
-            df = pd.read_csv(file_path)
-        except Exception as e:
-            print(f"❌ Skipping {file_path} due to read error: {e}")
-            continue
+        try: df = pd.read_csv(file_path)
+        except Exception: continue
 
-        # Standardize column names
         df.columns = [str(col).strip().lower() for col in df.columns]
         
-        # --- DYNAMIC COLUMN MAPPING ---
-        # 1. Map Time (PRIORITIZE 'timestamp' because 'time' contains strings like "04:14")
-        if 'timestamp' in df.columns:
-            time_col = 'timestamp'
-        elif 'time' in df.columns:
-            time_col = 'time'
-        else:
-            print(f"⚠️ Warning: Missing time column in {file_path}. Found: {df.columns.tolist()}")
-            continue
+        if 'timestamp' in df.columns: time_col = 'timestamp'
+        elif 'time' in df.columns: time_col = 'time'
+        else: continue
 
-        # 2. Map Service / Container Name
-        if 'service' in df.columns:
-            service_col = 'service'
-        elif 'container_name' in df.columns:
-            service_col = 'container_name'
-        elif 'pod_name' in df.columns:
-            service_col = 'pod_name'
-        else:
-            print(f"⚠️ Warning: Missing service/container column in {file_path}. Found: {df.columns.tolist()}")
-            continue
+        if 'service' in df.columns: service_col = 'service'
+        elif 'container_name' in df.columns: service_col = 'container_name'
+        elif 'pod_name' in df.columns: service_col = 'pod_name'
+        else: continue
 
-        # 3. Map Message
-        if 'message' in df.columns:
-            msg_col = 'message'
-        elif 'log' in df.columns:
-            msg_col = 'log'
-        else:
-            print(f"⚠️ Warning: Missing message column in {file_path}. Found: {df.columns.tolist()}")
-            continue
-
-        dropped_rows = 0
+        if 'message' in df.columns: msg_col = 'message'
+        elif 'log' in df.columns: msg_col = 'log'
+        else: continue
 
         for _, row in df.iterrows():
             service = str(row[service_col])
-            
-            # Handle potential non-numeric times safely
-            try:
-                original_time = float(row[time_col])
-            except ValueError:
-                dropped_rows += 1
-                continue # Skip corrupt time rows
+            try: original_time = float(row[time_col])
+            except ValueError: continue
                 
             message = str(row[msg_col])
             
-            # Step 1: Assign an NTP Clock Skew (\Delta_s) per service
             if service not in service_ntp_skew:
                 service_ntp_skew[service] = np.random.normal(0, np.sqrt(clock_drift_var))
-            delta_s = service_ntp_skew[service]
+            
+            observed_time = original_time + service_ntp_skew[service] + np.random.gumbel(loc=0.0, scale=gumbel_scale)
 
-            # Step 2: Sample Asynchronous Buffer Delay (\epsilon_i)
-            epsilon_i = np.random.gumbel(loc=0.0, scale=gumbel_scale)
-
-            # Step 3: Calculate the new ingestion timestamp (\tilde{t})
-            observed_time = original_time + delta_s + epsilon_i
-
-            log_entry = {
+            # 1. Add the TRUE log instance
+            all_logs.append({
                 "log_id": global_log_id,
                 "observed_timestamp": observed_time,
                 "service": service,
                 "message": message
-            }
-            all_logs.append(log_entry)
+            })
 
-            # Step 5: Save origin to the Golden Key
+            # Save origin to the Golden Key
             golden_key.append({
                 "log_id": global_log_id,
                 "original_timestamp": original_time,
@@ -110,37 +74,38 @@ def process_logs(input_dir, clock_drift_var, gumbel_scale):
                 "trial": trial,
                 "original_trace_id": row.get('trace_id', row.get('traceid', 'UNKNOWN'))
             })
-            
             global_log_id += 1
 
-        if dropped_rows > 0:
-            print(f"⚠️ Warn: Dropped {dropped_rows} rows in {file_path} due to unparsable timestamps.")
+            # 2. TEMPORAL DISTRACTOR INJECTION (Simulating Microservice Retry Loops)
+            # If the log is an error/exception, simulate 1 to 3 automatic retries occurring later in time.
+            if any(kw in message.lower() for kw in ['exception', 'error', 'fail', 'traceback']):
+                num_retries = np.random.randint(1, 4)
+                for _ in range(num_retries):
+                    retry_time_shift = np.random.uniform(500, 5000) # Retry happens 500ms to 5s later
+                    all_logs.append({
+                        "log_id": global_log_id,
+                        "observed_timestamp": observed_time + retry_time_shift,
+                        "service": service,
+                        "message": message # Identical text! This will confuse BM25 natively.
+                    })
+                    # Note: We DO NOT add retries to the Golden Key, as they are not the true root-cause event
+                    global_log_id += 1
 
     corpus_df = pd.DataFrame(all_logs)
-    
-    if corpus_df.empty:
-        print("🚨 Error: No logs were successfully processed. Please check the warnings above.")
-        return corpus_df, golden_key
-
     print("⏳ Sorting corpus by simulated observed ingestion times...")
     corpus_df = corpus_df.sort_values(by="observed_timestamp").reset_index(drop=True)
-
     return corpus_df, golden_key
 
 def main():
     args = parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
-
     corpus_df, golden_key = process_logs(args.input_dir, args.clock_drift_variance, args.gumbel_scale)
 
     if not corpus_df.empty:
         print(f"💾 Saving interleaved corpus ({len(corpus_df)} logs) to {args.output_dir}/universal_corpus.csv")
         corpus_df.to_csv(f"{args.output_dir}/universal_corpus.csv", index=False)
-
-        print(f"🔑 Saving Golden Key to {args.output_dir}/golden_key.json")
         with open(f"{args.output_dir}/golden_key.json", "w") as f:
             json.dump(golden_key, f, indent=4)
-            
         print("✅ Dataset construction complete! The Spaghetti Log corpus is ready.")
 
 if __name__ == "__main__":
