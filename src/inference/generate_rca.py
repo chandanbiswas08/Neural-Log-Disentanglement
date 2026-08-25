@@ -1,13 +1,13 @@
 import os
 import torch
 import argparse
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Generative RCA Diagnosis (Stage 4)")
     parser.add_argument("--context_file", type=str, default="data/results/retrieved_context.txt")
-    # Qwen2.5-3B or 7B are fantastic for log analysis and easily fit on an RTX A5500
-    parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-3B-Instruct")
+    # Updated to Qwen3-14B-Instruct 
+    parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-14B-Instruct")
     return parser.parse_args()
 
 def main():
@@ -21,17 +21,24 @@ def main():
     with open(args.context_file, "r") as f:
         retrieved_context = f.read()
 
-    print(f"🧠 Loading Generative LLM ({args.model_name})... This may take a minute to download weights the first time.")
+    print(f"🧠 Loading {args.model_name} in 4-bit Quantization to fit RTX A5500 (24GB)...")
     
-    # Load tokenizer and model
+    # 4-bit Quantization Config to perfectly fit 14B models into 24GB VRAM
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16
+    )
+
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name,
-        torch_dtype=torch.bfloat16, # Uses half-precision to save VRAM and run ultra-fast
+        quantization_config=bnb_config,
         device_map="auto"
     )
 
-    # RAG Prompt Formulation (Matches Eq 5 in your paper)
+    # RAG Prompt Formulation
     prompt = f"""You are an Expert AIOps Site Reliability Engineer.
 A network anomaly was triggered. A neural retrieval system has extracted the following most relevant logs from a massive distributed cluster. 
 
@@ -61,11 +68,10 @@ RCA REPORT:"""
         generated_ids = model.generate(
             **model_inputs,
             max_new_tokens=256,
-            temperature=0.1, # Low temperature for deterministic, factual extraction
+            temperature=0.1, # Low temp for deterministic extraction
             do_sample=True
         )
         
-        # Extract only the newly generated tokens
         generated_ids = [
             output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
         ]
