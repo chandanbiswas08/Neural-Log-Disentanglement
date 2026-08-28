@@ -3,15 +3,25 @@ import pandas as pd
 import numpy as np
 import json
 import argparse
+import re
 from pathlib import Path
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Build Interleaved Log Corpus (Spaghetti Logs)")
-    parser.add_argument("--input_dir", type=str, default="data/raw", help="Path to the raw RE3 directory")
-    parser.add_argument("--output_dir", type=str, default="data/processed", help="Path to save processed data")
-    parser.add_argument("--clock_drift_variance", type=float, default=50.0, help="NTP Jitter Variance (ms)")
-    parser.add_argument("--gumbel_scale", type=float, default=15.0, help="Scale for Gumbel network buffer delay")
+    parser = argparse.ArgumentParser(description="Build Interleaved Log Corpus with Real-World Noise")
+    parser.add_argument("--input_dir", type=str, default="data/raw")
+    parser.add_argument("--output_dir", type=str, default="data/processed")
+    parser.add_argument("--clock_drift_variance", type=float, default=50.0)
+    parser.add_argument("--gumbel_scale", type=float, default=15.0)
     return parser.parse_args()
+
+def sanitize_log(message):
+    """Simulates real-world log masking by stripping highly unique variables."""
+    msg = str(message)
+    msg = re.sub(r'0x[0-9a-fA-F]+', '<HEX>', msg) # Mask hex memory addresses
+    msg = re.sub(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', '<IP>', msg) # Mask IPs
+    msg = re.sub(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '<UUID>', msg) # Mask UUIDs
+    msg = re.sub(r'\d{5,}', '<NUM>', msg) # Mask long dynamic numbers (like request IDs)
+    return msg
 
 def process_logs(input_dir, clock_drift_var, gumbel_scale):
     all_logs = []
@@ -50,7 +60,8 @@ def process_logs(input_dir, clock_drift_var, gumbel_scale):
             try: original_time = float(row[time_col])
             except ValueError: continue
                 
-            message = str(row[msg_col])
+            # Sanitize the message to simulate real-world log aggregation
+            message = sanitize_log(row[msg_col])
             
             if service not in service_ntp_skew:
                 service_ntp_skew[service] = np.random.normal(0, np.sqrt(clock_drift_var))
@@ -76,19 +87,19 @@ def process_logs(input_dir, clock_drift_var, gumbel_scale):
             })
             global_log_id += 1
 
-            # 2. TEMPORAL DISTRACTOR INJECTION (Simulating Microservice Retry Loops)
-            # If the log is an error/exception, simulate 1 to 3 automatic retries occurring later in time.
-            if any(kw in message.lower() for kw in ['exception', 'error', 'fail', 'traceback']):
-                num_retries = np.random.randint(1, 4)
+            # 2. TEMPORAL DISTRACTOR INJECTION (Simulating Untracked Retry Storms)
+            # If log is an error, simulate retries. They have identical text, but happen later.
+            if any(kw in message.lower() for kw in ['exception', 'error', 'fail', 'traceback', 'timeout']):
+                num_retries = np.random.randint(2, 6) # Generate 2 to 5 retries
                 for _ in range(num_retries):
-                    retry_time_shift = np.random.uniform(500, 5000) # Retry happens 500ms to 5s later
+                    retry_time_shift = np.random.uniform(2000, 10000) # Retries happen 2 to 10 seconds later
                     all_logs.append({
                         "log_id": global_log_id,
                         "observed_timestamp": observed_time + retry_time_shift,
                         "service": service,
-                        "message": message # Identical text! This will confuse BM25 natively.
+                        "message": message # Identical text! 
                     })
-                    # Note: We DO NOT add retries to the Golden Key, as they are not the true root-cause event
+                    # Do NOT add to Golden Key. These are distractors outside the causal window.
                     global_log_id += 1
 
     corpus_df = pd.DataFrame(all_logs)
